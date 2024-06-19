@@ -1,14 +1,11 @@
 import torch
 import os
 import folder_paths
-from diffusers import StableDiffusion3Pipeline
-from diffusers.models.controlnet_sd3 import ControlNetSD3Model
-from diffusers.utils.torch_utils import randn_tensor
+from diffusers import StableDiffusion3ControlNetPipeline
+from diffusers.models import SD3ControlNetModel, SD3MultiControlNetModel
 from huggingface_hub import hf_hub_download
 import numpy as np
 from PIL import Image
-
-from .pipeline_stable_diffusion_3_controlnet import StableDiffusion3CommonPipeline
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -27,8 +24,8 @@ class SD3MCN_BaseModelLoader_Zho:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "base_model": ("STRING", {"default": "v2ray/stable-diffusion-3-medium-diffusers"}),
-                "cn_model": (["InstantX/SD3-Controlnet-Canny", "InstantX/SD3-Controlnet-Pose", "InstantX/SD3-Controlnet-Tile", "InstantX/SD3-Controlnet-Inpainting"],),
+                "base_model": ("STRING", {"default": "stabilityai/stable-diffusion-3-medium-diffusers"}),
+                "cn_model": (["InstantX/SD3-Controlnet-Canny", "InstantX/SD3-Controlnet-Pose", "InstantX/SD3-Controlnet-Tile"],),
             }
         }
 
@@ -38,12 +35,10 @@ class SD3MCN_BaseModelLoader_Zho:
     CATEGORY = "🖼️SD3MCN"
   
     def load_model(self, base_model, cn_model):
-
-        cn_model = [cn_model]
-        
-        pipe = StableDiffusion3CommonPipeline.from_pretrained(
+        controlnet = SD3ControlNetModel.from_pretrained(cn_model)
+        pipe = StableDiffusion3ControlNetPipeline.from_pretrained(
             base_model,
-            controlnet_list=cn_model,
+            controlnet=controlnet,
         ).to(device, dtype=torch.float16)
         return [pipe]
 
@@ -76,31 +71,17 @@ class SD3MCN_Generation_Zho:
     def generate_image(self, pipe, image, positive, negative, steps, seed, width, height, guidance_scale, control_weight):
 
         generator = torch.Generator(device=device).manual_seed(seed)
-      
-        controlnet_conditioning = [
-            dict(
-                control_index=0,
-                control_image=tensor2pil(image),
-                control_weight=control_weight,
-                control_pooled_projections='zeros'
-            )
-        ]
-
-        controlnet_start_step = int(steps * 0.0)
-        controlnet_end_step = int(steps * 1.0)
         
         output = pipe(
             prompt=positive,
             negative_prompt=negative,
+            control_image=tensor2pil(image),
             width=width,
             height=height,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
-            controlnet_conditioning=controlnet_conditioning,
-            controlnet_start_step=controlnet_start_step,
-            controlnet_end_step=controlnet_end_step,
+            controlnet_conditioning_scale=control_weight,
             generator=generator,
-            latents=None,
         )[0]
 
         output_t = pil2tensor(output)
